@@ -13,6 +13,7 @@ inter_funcis = pd.read_csv('inter_funcis.csv')
 nec_vagas = pd.read_csv('nec_vagas.csv')
 assuntos_vagas = pd.read_csv('assuntos_vagas.csv')
 
+#--------------------------------------------------------------------------
 # Vamos criar uma matriz de pontos que será preenchida posteriormente.
 # A matriz terá uma linha para cada candidato e uma coluna para cada vaga.
 
@@ -62,4 +63,157 @@ print(matriz_pontos)
 # O parâmetro 'index_label' é usado para nomear a coluna do índice no arquivo CSV.
 matriz_pontos.to_csv('matriz_pontos3.csv', index_label='n_inscricao')
 
+#----------------------------------------------------------------------------------------------------------------
+
+#Utilizando metodo hungaro para encontrar alocacao ótima
+
+import pandas as pd
+import numpy as np
+from scipy.optimize import linear_sum_assignment
+
+# Carregando o arquivo CSV
+data = pd.read_csv('matriz_pontos.csv', delimiter=',')
+
+# Removendo a coluna de identificação dos candidatos e convertendo para uma matriz numpy
+scores = data.drop(columns=['n_inscricao']).to_numpy()
+
+# Adicionando 1 a todas as células da matriz
+scores += 1
+
+# Tornando a matriz quadrada adicionando linhas fictícias com zeros
+num_candidates, num_vacancies = scores.shape
+if num_candidates < num_vacancies:
+    # Adicionando linhas fictícias com zeros
+    extra_rows = num_vacancies - num_candidates
+    scores = np.pad(scores, ((0, extra_rows), (0, 0)), mode='constant')
+
+# Aplicando o Método Húngaro
+row_ind, col_ind = linear_sum_assignment(scores, maximize=True)
+
+# Criando um DataFrame para os resultados
+assignments = pd.DataFrame({
+    'Candidato': data['n_inscricao'].tolist() + ['Fictício'] * extra_rows,
+    'Vaga': col_ind + 1,  # Adicionando 1 para corresponder aos números das vagas
+    'Pontuação': scores[row_ind, col_ind]
+})
+
+# Caminho para o novo arquivo CSV
+output_file_path = 'caminho/para/o/novo/arquivo.csv'
+
+# Salvando os resultados em um novo arquivo CSV
+assignments.to_csv('resultado.csv', index=False)
+
+print(f"Arquivo de alocações salvo em: {output_file_path}")
+
+# Calculando a soma total dos valores maximizados
+total_maximized_value = assignments['Pontuação'].sum()
+print(f"Soma total dos valores maximizados: {total_maximized_value}")
+
+#-------------------------------------------------------------------------------------------------------
+
+#Criando 1.000.000 de simulações aleatoria para comparar pontuacao total com a pontuacao da distribuição otima
+import pandas as pd
+import numpy as np
+
+# Função para realizar uma alocação aleatória e calcular sua soma
+def random_allocation_sum(scores):
+    # Embaralhando os índices das vagas
+    shuffled_vacancies = np.arange(scores.shape[1])
+    np.random.shuffle(shuffled_vacancies)
+    
+    # Escolhendo uma vaga aleatória para cada candidato
+    # Garantindo que o número de candidatos e vagas seja igual
+    num_allocations = min(scores.shape[0], scores.shape[1])
+    random_col_ind = shuffled_vacancies[:num_allocations]
+    
+    # Calculando a soma para a alocação aleatória
+    return np.sum(scores[np.arange(num_allocations), random_col_ind])
+
+# Carregando o arquivo CSV
+# Substitua pelo seu caminho de arquivo
+file_path = 'matriz_pontos.csv'
+data = pd.read_csv(file_path, delimiter=',')
+
+# Preparando a matriz de pontuações para simulações
+scores_for_simulation = data.drop(columns=['n_inscricao']).to_numpy()
+scores_for_simulation += 1
+
+# Realizando 1.000.000 simulações
+random_sums_1M = [random_allocation_sum(scores_for_simulation) for _ in range(1000000)]
+
+# Criando um DataFrame para os resultados das simulações
+simulation_results_1M = pd.DataFrame({
+    'Simulação': range(1, 1000001),
+    'Soma Total': random_sums_1M
+})
+
+# Encontrando a simulação com o valor máximo
+max_value = max(random_sums_1M)
+max_simulation_index = random_sums_1M.index(max_value) + 1  # +1 para ajustar a contagem base-0 para base-1
+
+# Exibindo a simulação de valor máximo
+print(f"Simulação de valor máximo: {max_simulation_index} - Total de pontos: {max_value}")
+
+# Salvando os resultados das simulações em um arquivo CSV
+simulation_results_1M.to_csv('1M_simulacoes.csv', index=False)
+
+#------------------------------------------------------------------------------------------------------
+
+#Rodando agora com o metodo SIMPLEX como maximizador:
+#Unable to allocate 2.40 GiB for an array with shape (1116, 289163) and data type float64 - Deu erro de memória
+import pandas as pd
+import numpy as np
+from scipy.optimize import linprog
+
+# Carregando o arquivo CSV
+data = pd.read_csv('matriz_pontos.csv', delimiter=',')
+
+# Removendo a coluna de identificação dos candidatos
+scores = data.drop(columns=['n_inscricao']).to_numpy()
+
+# Adicionando 1 a todas as células da matriz
+scores += 1
+
+# Tornando a matriz "plana" para uso no Simplex
+flat_scores = scores.flatten()
+
+# Número de candidatos e vagas
+num_candidates, num_vacancies = scores.shape
+
+# Definindo as restrições
+# Cada candidato é alocado exatamente a uma vaga
+# Cada vaga é preenchida por no máximo um candidato
+
+# Restrições dos candidatos
+A_eq_cand = np.zeros((num_candidates, num_candidates * num_vacancies))
+for i in range(num_candidates):
+    A_eq_cand[i, i*num_vacancies:(i+1)*num_vacancies] = 1
+
+# Restrições das vagas
+A_ub_vaga = np.zeros((num_vacancies, num_candidates * num_vacancies))
+for i in range(num_vacancies):
+    A_ub_vaga[i, i::num_vacancies] = 1
+
+# Vetores de igualdade e limite superior
+b_eq = np.ones(num_candidates)
+b_ub = np.ones(num_vacancies)
+
+# Aplicando o Simplex
+result = linprog(-flat_scores, A_ub=A_ub_vaga, b_ub=b_ub, A_eq=A_eq_cand, b_eq=b_eq, method='highs')
+
+# Verificando se a solução foi encontrada
+if result.success:
+    # Extraindo as alocações da solução
+    allocations = result.x.reshape(num_candidates, num_vacancies)
+
+    # Criando um DataFrame para as alocações
+    allocation_df = pd.DataFrame(allocations, index=data['n_inscricao'], columns=range(1, num_vacancies + 1))
+
+    # Salvando o DataFrame em um arquivo CSV
+    allocation_df.to_csv('resultado_simplex.csv')
+
+    print("Arquivo de alocações (Simplex) salvo como 'resultado_simplex.csv'")
+    print(f"Soma total dos valores maximizados: {result.fun * -1}")  # A função objetivo é minimizada, portanto, multiplicamos por -1
+else:
+    print("Não foi possível encontrar uma solução ótima.")
 

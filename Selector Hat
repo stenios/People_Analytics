@@ -1,0 +1,65 @@
+import pandas as pd
+import numpy as np
+import os
+# Defina o caminho do diretório para o qual você quer mudar
+diretorio_desejado = 'C:/Users/steni/Documents/Estudo/UNB/Mestrado/Aulas/2ºS/ARTIGOS EM CONSTRUCAO/BDM Chapeu Seletor/Bases'
+
+# Mudando para o diretório desejado
+os.chdir(diretorio_desejado)
+os.getcwd()
+
+conh_funci = pd.read_csv('conh_funci.csv')
+inter_funcis = pd.read_csv('inter_funcis.csv')
+nec_vagas = pd.read_csv('nec_vagas.csv')
+assuntos_vagas = pd.read_csv('assuntos_vagas.csv')
+
+# Vamos criar uma matriz de pontos que será preenchida posteriormente.
+# A matriz terá uma linha para cada candidato e uma coluna para cada vaga.
+
+# Obtendo IDs únicos de inscrição e vagas
+ids_inscricao = conh_funci['nr_inscr'].unique()
+ids_vagas = nec_vagas['cd_vaga'].unique()
+
+# Criando a matriz de pontos com zeros
+matriz_pontos = pd.DataFrame(0, index=ids_inscricao, columns=ids_vagas)
+
+# Vamos preencher essa matriz com pontos calculados.
+
+# Para cada candidato...
+for nr_inscr in ids_inscricao:
+    # Encontrar os conhecimentos do candidato
+    conhecimentos_candidato = conh_funci[conh_funci['nr_inscr'] == nr_inscr]
+    
+    # Para cada vaga...
+    for cd_vaga in ids_vagas:
+        # Encontrar os conhecimentos necessários para a vaga
+        conhecimentos_vaga = nec_vagas[nec_vagas['cd_vaga'] == cd_vaga]
+        
+        # Calcular os pontos de experiência para a vaga
+        pontos_experiencia = 0
+        for _, conhecimento in conhecimentos_vaga.iterrows():
+            experiencia = conhecimentos_candidato[conhecimentos_candidato['cod_conhe'] == conhecimento['cd_conhec']]['exper']
+            if not experiencia.empty:
+                pontos_experiencia += experiencia.iloc[0]  # Somando diretamente os pontos de experiência     
+               
+        # Encontrar o interesse do candidato nos assuntos da vaga
+        assuntos_da_vaga = assuntos_vagas[assuntos_vagas['cd_vaga'] == cd_vaga]['cd_assunto']
+        pontos_interesse = 0
+        for assunto in assuntos_da_vaga:
+            interesse = inter_funcis[(inter_funcis['nr_inscr'] == nr_inscr) & (inter_funcis['cd_assunto'] == assunto)]
+            if not interesse.empty:
+                # Supondo que a ordem de interesse varia de 1 a 3, onde 1 é o maior interesse.
+                # Pontuação de interesse é 6 - (ordem_inter - 1), então ordem 1 dá 6 pontos, 2 dá 5 pontos, e 4 dá 1 pontos.
+                pontos_interesse += 6 - (interesse['ordem_inter'].iloc[0] - 1)
+
+        # Atribuir pontos à matriz
+        matriz_pontos.at[nr_inscr, cd_vaga] = (pontos_experiencia + pontos_interesse)
+
+# A matriz_pontos agora contém os pontos de cada candidato para cada vaga
+print(matriz_pontos)
+
+# O método to_csv exportará o DataFrame para um arquivo CSV.
+# O parâmetro 'index_label' é usado para nomear a coluna do índice no arquivo CSV.
+matriz_pontos.to_csv('matriz_pontos3.csv', index_label='n_inscricao')
+
+
